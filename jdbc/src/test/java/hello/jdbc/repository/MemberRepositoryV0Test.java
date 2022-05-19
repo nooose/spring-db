@@ -1,10 +1,13 @@
 package hello.jdbc.repository;
 
 import hello.jdbc.domain.Member;
+import lombok.extern.slf4j.Slf4j;
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.sql.SQLException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 
@@ -16,5 +19,9 @@ class MemberRepositoryV0Test {
     void crud() throws SQLException {
         Member member = new Member("memberV1", 10000);
         repository.save(member);
+
+        // findById
+        Member findMember = repository.findById(member.getMemberId());
+        assertThat(findMember).isEqualTo(member);
     }
 }
