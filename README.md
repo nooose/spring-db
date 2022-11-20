@@ -208,3 +208,82 @@ public interface DataSource {
 > JPA(하이버네이트)는 읽기 전용 트랜잭션의 경우 커밋 시점에 플러시를 호출하지 않는다. 읽기 전용이니 변경에 사용되는 플러시를 호출할 필요가 없다. 추가로 변경 감지를 위한 스냅샷 객체도 생성하지 않는다.
 
 > 데이터베이스에 따라 읽거 전용 트랜잭션의 경우 읽기만 하면 되므로, 내부에서 성능 최적화가 발생한다.
+
+# 트랜잭션 전파(propagation)
+트랜잭션이 수행중인 상태에서 내부적으로 트랜잭션을 수행시키는 경우 외부 트랜잭션과 내부 트랜잭션을 묶어 하나의 트랜잭션으로 만들어준다.
+
+이것이 기본 옵션인 `REQUIRED`이다. 옵션을 통해 다른 동작방식을 선택할 수 있다.
+
+## 물리 트랜잭션/논리 트랜잭션
+- 논리 트랜잭션은 하나의 물리 트랜잭션으로 묶인다.
+  - 트랜잭션 매니저를 통해 트랜잭션을 사용하는 단위이다.
+  - 트랜잭션이 진행되는 중에 내부에 추가로 트랜잭션을 사용하는 경우에 사용하는 개념이다.
+- 물리 트랜잭션은 실제 데이터베이스에서 적용되는 트랜잭션을 뜻한다.
+  - 실제 커넥션을 통해서 커밋, 롤백하는 단위
+
+**원칙**
+- 모든 논리 트랜잭션이 커밋되어야 물리 트랜잭션이 커밋된다.
+  - 모든 트랜잭션 매니저를 커밋해야 물리 트랜잭션이 커밋된다.
+- 하나의 논리 트랜잭션이라도 롤백되면 물리 트랜잭션은 롤백된다.
+  - 하나의 트랜잭션 매니저라도 롤백하면 물리 트랜잭션은 롤백된다.
+
+**즉, 처음 트랜잭션을 시작한 외부 트랜잭션이 실제 물리 트랜잭션을 관리한다.**
+
+> 트랜잭션 참여
+
+
+
+### **내부 트랜잭션이 롤백을 수행하고 외부 트랜잭션이 커밋을 하는 경우**
+- 내부 트랜잭션 롤백
+  - `Participating transaction failed - marking existing transaction as rollback-only`
+  - 내부 트랜잭션을 롤백하면 실제 물리 트랜잭션은 롤백하지 않는다.
+  - 대신 기존 트랜잭션을 롤백 전용으로 표시한다.
+    - 트랜잭션 동기화 매니저에 마크한다. `rollbackOnly=true`
+  - 
+- 외부 트랜잭션 커밋
+  - `Global transaction is marked as rollback-only but transactional code requested commit`
+  - 커밋은 호출했지만, 전체 트랜잭션이 롤백 전용으로 표시되어 있다. 따라서 물리 트랜잭션을 롤백한다.
+  - `UnexpectedRollbackException` 런타임 예외 발생
+
+## REQUIRES_NEW
+외부 트랜잭션과 내부 트랜잭션을 완전히 분리해서 사용하는 방법
+- 커밋과 롤백도 각각 별도로 이루어지게 된다.
+
+```java
+        log.info("외부 트랜잭션 시작");
+        TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute()); // con0
+        log.info("outer.isNewTransaction()={}", outer.isNewTransaction());
+
+
+        log.info("내부 트랜잭션 시작");
+        DefaultTransactionAttribute definition = new DefaultTransactionAttribute();
+        definition.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        // 항상 신규 트랜잭션을 만드는 옵션
+        // 기본 옵션은 REQUIRED
+        TransactionStatus inner = txManager.getTransaction(definition); // con1
+        log.info("inner.isNewTransaction()={}", inner.isNewTransaction());
+        // inner.isNewTransaction()=true
+```
+
+## 다양한 전파 옵션
+**REQUIRED**, **REQUIRES_NEW** 를 제외하고 나머지는 거의 사용하지 않는다.
+
+- **REQUIRED**
+  - 가장 많이 사용하는 기본 설정
+  - 기존 트랜잭션이 없으면 생성하고, 있으면 참여
+- **REQUIRES_NEW**
+  - 항상 새로운 트랜잭션을 생성
+- **SUPPORT**
+  - 기존 트랜잭션이 없으면, 없는대로 진행하고, 있으면 참여
+- **NOT_SUPPORT**
+  - 기존 트랜잭션이 없으면, 없는대로 진행하고, 있어도 트랜잭션은 보류한다.
+- **MANDATORY**
+  - 트랜잭션이 반드시 있어야 한다.
+  - 기존 트랜잭션이 없으면 `IllegalTransactionStateException` 예외 발생
+- **NEVER**
+  - 트랜잭션을 사용하지 않음
+- **NESTED**
+  - 중첩 트랜잭션을 만든다.
+  - 외부 트랜잭션의 영향을 받지만, 중첩 트랜잭션은 외부에 영향을 주지 않는다.
+  - JDBC savepoint 기능을 사용한다.
+    - JPA에서는 사용할 수 없다.
