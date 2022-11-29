@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.UnexpectedRollbackException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,7 +43,7 @@ class MemberServiceTest {
      */
     @Test
     void outerTxOffFail() {
-        String username = "로그예외 outerTxOffFail";
+        String username = "로그예외_outerTxOffFail";
 
         assertThatThrownBy(() -> memberService.joinV1(username))
                 .isInstanceOf(RuntimeException.class);
@@ -88,12 +89,43 @@ class MemberServiceTest {
      */
     @Test
     void outerTxOnFail() {
-        String username = "로그예외 outerTxOnFail";
+        String username = "로그예외_outerTxOnFail";
 
         assertThatThrownBy(() -> memberService.joinV1(username))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(memberRepository.find(username)).isEmpty();
+        assertThat(logRepository.find(username)).isEmpty();
+    }
+
+    /**
+     * memberService @Transactional:ON
+     * memberRepository @Transactional:ON
+     * logRepository @Transactional:ON Exception
+     */
+    @Test
+    void recoverExceptionFail() {
+        String username = "로그예외_recoverExceptionFail";
+
+        assertThatThrownBy(() -> memberService.joinV2(username))
+                .isInstanceOf(UnexpectedRollbackException.class);
+
+        assertThat(memberRepository.find(username)).isEmpty();
+        assertThat(logRepository.find(username)).isEmpty();
+    }
+
+    /**
+     * memberService @Transactional:ON
+     * memberRepository @Transactional:ON
+     * logRepository @Transactional:ON (REQUIRES_NEW) Exception
+     */
+    @Test
+    void recoverExceptionSuccess() {
+        String username = "로그예외_recoverExceptionSuccess";
+
+        memberService.joinV2(username);
+
+        assertThat(memberRepository.find(username)).isPresent();
         assertThat(logRepository.find(username)).isEmpty();
     }
 }
